@@ -72,11 +72,16 @@ async function generateManifest(bucket: string, prefix?: string, region?: string
 		version: 1,
 	}
 
-	// Save manifest locally
+	// Save manifest locally to .manifest directory
 	const manifestContent = JSON.stringify(manifest, null, 2)
 	const fs = await import('node:fs/promises')
-	const localPath = `${bucket.replace(/[^a-z0-9]/gi, '-')}-manifest.json`
+	const path = await import('node:path')
 	
+	const manifestDir = '.manifest'
+	const localPath = path.join(manifestDir, `${bucket.replace(/[^a-z0-9]/gi, '-')}-manifest.json`)
+	
+	// Create .manifest directory if it doesn't exist
+	await fs.mkdir(manifestDir, { recursive: true })
 	await fs.writeFile(localPath, manifestContent, 'utf8')
 
 	console.log(`\nTotal files: ${files.length}`)

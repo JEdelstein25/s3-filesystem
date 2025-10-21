@@ -15,7 +15,7 @@ import { tools, toolHandlers, type ToolName } from './tools/index.ts'
 let filesystem: S3FileSystem
 let fileCache: S3FileCache
 
-function initializeS3Config(): void {
+async function initializeS3Config(): Promise<void> {
 	const bucket = process.env.S3_BUCKET
 	const region = process.env.S3_REGION || process.env.AWS_REGION
 	const prefix = process.env.S3_PREFIX || ''
@@ -36,6 +36,15 @@ function initializeS3Config(): void {
 	console.log(
 		`S3 MCP Server initialized: bucket=${config.bucket}, region=${config.region || 'default'}, prefix=${config.prefix}`,
 	)
+	
+	// Check for manifest at startup
+	const manifest = await filesystem.fetchManifest()
+	if (manifest) {
+		console.log(`✓ Manifest loaded: ${manifest.files.length} files indexed`)
+	} else {
+		console.log('⚠ No manifest found - file searches will be slower')
+		console.log('  To generate a manifest, run: bun run util/generate-s3-manifest.ts')
+	}
 }
 
 const server = new McpServer(
@@ -77,7 +86,7 @@ server.server.setRequestHandler(CallToolRequestSchema, async (request): Promise<
 })
 
 // Initialize S3 configuration
-initializeS3Config()
+await initializeS3Config()
 
 const transports = new Map<string, SSEServerTransport>()
 

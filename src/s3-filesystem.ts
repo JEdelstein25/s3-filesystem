@@ -4,6 +4,8 @@ import {
 	ListObjectsV2Command,
 	S3Client,
 } from '@aws-sdk/client-s3'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { URI } from 'vscode-uri'
 import { findFiles as findFilesUtil } from './find-files.ts'
 
@@ -19,7 +21,6 @@ export interface S3Manifest {
 	version?: number
 }
 
-const MANIFEST_KEY = '.amp-manifest.json'
 const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000
 
 export class S3FileSystem {
@@ -52,41 +53,47 @@ export class S3FileSystem {
 	}
 
 	async fetchManifest(): Promise<S3Manifest | null> {
+		console.log('[fetchManifest] Starting manifest fetch...')
+		console.log('[fetchManifest] Config:', {
+			bucket: this.config.bucket,
+			prefix: this.config.prefix,
+		})
+		
 		if (this.manifestCache) {
 			const age = Date.now() - this.manifestCache.fetchedAt
+			console.log(`[fetchManifest] Found cached manifest (age: ${age}ms, TTL: ${MANIFEST_CACHE_TTL_MS}ms)`)
 			if (age < MANIFEST_CACHE_TTL_MS) {
 				console.log('[fetchManifest] Using cached manifest')
 				return this.manifestCache.data
 			}
+			console.log('[fetchManifest] Cached manifest expired, fetching new one')
+		} else {
+			console.log('[fetchManifest] No cached manifest found')
 		}
 
 		try {
-			const manifestKey = this.config.prefix
-				? `${this.config.prefix}${MANIFEST_KEY}`
-				: MANIFEST_KEY
-			console.log(`[fetchManifest] Fetching manifest from key: ${manifestKey}`)
-			const command = new GetObjectCommand({
-				Bucket: this.config.bucket,
-				Key: manifestKey,
-			})
-			const response = await this.s3Client.send(command)
-
-			if (!response.Body) {
-				return null
-			}
-
-			const content = await response.Body.transformToString()
+			// Look for local manifest file in .manifest directory
+			const manifestFilename = `${this.config.bucket.replace(/[^a-z0-9]/gi, '-')}-manifest.json`
+			const manifestPath = path.join('.manifest', manifestFilename)
+			
+			console.log(`[fetchManifest] Looking for local manifest at: ${manifestPath}`)
+			
+			const content = await readFile(manifestPath, 'utf8')
+			console.log(`[fetchManifest] Loaded local manifest, content length: ${content.length} bytes`)
+			
 			const manifest = JSON.parse(content) as S3Manifest
 
-			console.log(`[fetchManifest] Loaded manifest with ${manifest.files.length} files`)
+			console.log(`[fetchManifest] ✓ Successfully loaded manifest with ${manifest.files.length} files`)
 			this.manifestCache = { data: manifest, fetchedAt: Date.now() }
 			return manifest
 		} catch (error: any) {
-			if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
-				console.log('[fetchManifest] Manifest not found')
+			if (error.code === 'ENOENT') {
+				console.log('[fetchManifest] Local manifest file not found')
+				console.log('[fetchManifest] Run: bun run util/generate-s3-manifest.ts <bucket> [prefix] [region]')
 				return null
 			}
-			console.warn('[fetchManifest] Failed to fetch S3 manifest:', error.message)
+			console.warn('[fetchManifest] Failed to load local manifest:', error.message)
+			console.warn('[fetchManifest] Error details:', error)
 			return null
 		}
 	}

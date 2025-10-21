@@ -82,7 +82,6 @@ export class S3FileCache {
 		try {
 			await fs.unlink(entry.localPath)
 			this.currentSize -= entry.size
-			console.log(`Evicted file from cache: ${entry.uri} (${entry.size} bytes)`)
 		} catch (error) {
 			console.warn('Failed to remove cached file:', error)
 		}
@@ -96,12 +95,9 @@ export class S3FileCache {
 		// Check if already cached
 		const existing = this.cache.get(key)
 		if (existing) {
-			console.log(`Cache hit: ${uri.toString()}`)
 			existing.lastAccessed = Date.now()
 			return existing.localPath
 		}
-
-		console.log(`Cache miss, downloading: ${uri.toString()}`)
 
 		try {
 			// Check file size before downloading
@@ -132,10 +128,6 @@ export class S3FileCache {
 
 			this.cache.set(key, entry)
 			this.currentSize += actualSize
-
-			console.log(
-				`Cached file: ${uri.toString()} (${actualSize} bytes, total: ${this.currentSize} bytes)`,
-			)
 
 			return localPath
 		} catch (error: any) {
