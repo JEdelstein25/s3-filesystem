@@ -1,0 +1,8 @@
+{	
+    "amp.mcpServers": {
+		"s3-1000genomes": {
+			"url": "http://localhost:7011/sse",
+		}
+
+	}
+}

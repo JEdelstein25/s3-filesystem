@@ -5,7 +5,8 @@
 	"private": true,
 	"scripts": {
 		"dev": "node --loader ts-node/esm src/server.ts",
-		"build": "tsc"
+		"build": "tsc",
+		"start": "bun run src/server.ts"
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.691.0",
