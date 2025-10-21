@@ -14,5 +14,8 @@
 		"lru-cache": "^10.4.3",
 		"picomatch": "^4.0.2",
 		"vscode-uri": "^3.0.8"
+	},
+	"devDependencies": {
+		"@types/node": "^24.9.1"
 	}
 }
