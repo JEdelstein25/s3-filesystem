@@ -51,7 +51,9 @@ export async function handleGlob(
 	const limit = typeof args?.limit === 'number' ? args.limit : undefined
 	const offset = typeof args?.offset === 'number' ? args.offset : undefined
 
+	console.log(`[glob] Searching for pattern: ${filePattern}, limit: ${limit}, offset: ${offset}`)
 	let files = await filesystem.findFiles(filePattern, limit)
+	console.log(`[glob] Found ${files.length} files`)
 
 	// Apply offset if specified
 	if (offset && offset > 0) {

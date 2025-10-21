@@ -5,10 +5,11 @@ import {
 	S3Client,
 } from '@aws-sdk/client-s3'
 import { URI } from 'vscode-uri'
+import { findFiles as findFilesUtil } from './find-files.ts'
 
 export interface S3Config {
 	bucket: string
-	region?: string
+	region?: string	
 	prefix: string
 }
 
@@ -54,6 +55,7 @@ export class S3FileSystem {
 		if (this.manifestCache) {
 			const age = Date.now() - this.manifestCache.fetchedAt
 			if (age < MANIFEST_CACHE_TTL_MS) {
+				console.log('[fetchManifest] Using cached manifest')
 				return this.manifestCache.data
 			}
 		}
@@ -62,6 +64,7 @@ export class S3FileSystem {
 			const manifestKey = this.config.prefix
 				? `${this.config.prefix}${MANIFEST_KEY}`
 				: MANIFEST_KEY
+			console.log(`[fetchManifest] Fetching manifest from key: ${manifestKey}`)
 			const command = new GetObjectCommand({
 				Bucket: this.config.bucket,
 				Key: manifestKey,
@@ -75,13 +78,15 @@ export class S3FileSystem {
 			const content = await response.Body.transformToString()
 			const manifest = JSON.parse(content) as S3Manifest
 
+			console.log(`[fetchManifest] Loaded manifest with ${manifest.files.length} files`)
 			this.manifestCache = { data: manifest, fetchedAt: Date.now() }
 			return manifest
 		} catch (error: any) {
 			if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
+				console.log('[fetchManifest] Manifest not found')
 				return null
 			}
-			console.warn('Failed to fetch S3 manifest:', error.message)
+			console.warn('[fetchManifest] Failed to fetch S3 manifest:', error.message)
 			return null
 		}
 	}
@@ -189,59 +194,13 @@ export class S3FileSystem {
 	}
 
 	async findFiles(pattern: string, maxResults?: number): Promise<URI[]> {
-		// Try manifest first
 		const manifest = await this.fetchManifest()
-		if (manifest) {
-			const matched = manifest.files
-				.filter((file) => this.matchGlob(pattern, file))
-				.slice(0, maxResults)
-			return matched.map((file) => this.s3KeyToURI(file))
-		}
-
-		// Fallback to list objects
-		const files: URI[] = []
-		let continuationToken: string | undefined
-
-		do {
-			const command = new ListObjectsV2Command({
-				Bucket: this.config.bucket,
-				Prefix: this.config.prefix,
-				ContinuationToken: continuationToken,
-			})
-			const response = await this.s3Client.send(command)
-
-			if (response.Contents) {
-				for (const item of response.Contents) {
-					if (item.Key && !item.Key.endsWith('/')) {
-						const relativePath = item.Key.startsWith(this.config.prefix)
-							? item.Key.slice(this.config.prefix.length)
-							: item.Key
-
-						if (this.matchGlob(pattern, relativePath)) {
-							files.push(this.s3KeyToURI(item.Key))
-							if (maxResults && files.length >= maxResults) {
-								return files
-							}
-						}
-					}
-				}
-			}
-
-			continuationToken = response.NextContinuationToken
-		} while (continuationToken)
-
-		return files
-	}
-
-	private matchGlob(pattern: string, path: string): boolean {
-		const regexPattern = pattern
-			.replace(/\*\*/g, '<<<DOUBLESTAR>>>')
-			.replace(/\*/g, '[^/]*')
-			.replace(/<<<DOUBLESTAR>>>/g, '.*')
-			.replace(/\?/g, '.')
-			.replace(/\./g, '\\.')
-		const regex = new RegExp(`^${regexPattern}$`)
-		return regex.test(path)
+		return findFilesUtil(this.s3Client, this.config.bucket, pattern, {
+			prefix: this.config.prefix,
+			maxResults,
+			manifest,
+			s3KeyToURI: this.s3KeyToURI.bind(this),
+		})
 	}
 
 	getConfig(): S3Config {
