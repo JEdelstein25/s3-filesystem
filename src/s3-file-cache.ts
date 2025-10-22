@@ -74,8 +74,12 @@ export class S3FileCache {
 		return createHash('sha256').update(uriStr).digest('hex')
 	}
 
-	private getLocalPath(key: string): string {
-		return path.join(this.cacheDir, key)
+	private getLocalPath(uri: URI): string {
+		const uriObj = typeof uri === 'string' ? URI.parse(uri) : uri
+		const bucket = uriObj.authority || uriObj.path.split('/')[0]
+		const key = uriObj.path.startsWith('/') ? uriObj.path.slice(1) : uriObj.path
+		const cleanBucket = bucket.replace(/^s3:\/\//, '')
+		return path.join(this.cacheDir, cleanBucket, key)
 	}
 
 	private async removeFile(entry: CacheEntry, key: string): Promise<void> {
@@ -109,7 +113,10 @@ export class S3FileCache {
 
 			// Download file content
 			const content = await this.filesystem.readFile(uri)
-			const localPath = this.getLocalPath(key)
+			const localPath = this.getLocalPath(uri)
+
+			// Ensure directory exists
+			await fs.mkdir(path.dirname(localPath), { recursive: true })
 
 			// Write to local file
 			await fs.writeFile(localPath, content, 'utf8')

@@ -69,26 +69,11 @@ export async function findFiles(
 		const fixedPrefix = extractFixedPrefix(pattern)
 		const fullPrefix = prefix ? `${prefix}${fixedPrefix}` : fixedPrefix
 
-		// Fast path for simple ** patterns like **/README* or **/*.txt
-		const simpleGlobMatch = pattern.match(/^\*\*\/(.+)$/)
-		const useSimpleMatch = simpleGlobMatch && !simpleGlobMatch[1].includes('/')
-
 		const matched: URI[] = []
 		for (const file of manifest.files) {
 			// Quick prefix check before glob matching
 			if (!fullPrefix || file.startsWith(fullPrefix)) {
-				let isMatch = false
-				
-				if (useSimpleMatch) {
-					// Fast path: just check if filename matches the pattern
-					const filename = file.split('/').pop() || ''
-					const searchPattern = simpleGlobMatch![1]
-					isMatch = minimatch(filename, searchPattern, { dot: true })
-				} else {
-					isMatch = matchGlob(pattern, file)
-				}
-				
-				if (isMatch) {
+				if (matchGlob(pattern, file)) {
 					matched.push(s3KeyToURI(file))
 					if (maxResults && matched.length >= maxResults) {
 						return matched

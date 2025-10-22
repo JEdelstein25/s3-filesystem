@@ -64,6 +64,7 @@ async function grepWithRipgrep(
 		'--line-number',
 		'--no-heading',
 		'--no-require-git',
+		'--no-messages',
 		'--max-columns',
 		GREP_MAX_COLUMN_LENGTH.toString(),
 		'--trim',
