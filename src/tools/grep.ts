@@ -47,17 +47,6 @@ async function grepWithRipgrep(
 		`Searching ${cacheStats.entries} cached files (${cacheStats.sizeMB} MB) with ripgrep...`,
 	)
 
-	// If glob pattern is specified, ensure those files are cached
-	if (globFilter) {
-		const matchingFiles = await filesystem.findFiles(globFilter, 1000)
-		const uncachedFiles = matchingFiles.filter((uri) => !cache.getCachedPath(uri))
-
-		if (uncachedFiles.length > 0) {
-			console.log(`Caching ${uncachedFiles.length} additional files for glob pattern...`)
-			await cache.cacheFiles(uncachedFiles, { maxConcurrent: 10, signal })
-		}
-	}
-
 	// Build ripgrep arguments
 	const ripgrepArgs: string[] = [
 		'--with-filename',
