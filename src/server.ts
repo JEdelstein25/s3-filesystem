@@ -73,11 +73,12 @@ server.server.setRequestHandler(CallToolRequestSchema, async (request): Promise<
 		return await handler(args, filesystem, fileCache)
 	} catch (error: any) {
 		console.error('Tool error:', error)
+		const errorMessage = error.stack || error.message || String(error)
 		return {
 			content: [
 				{
 					type: 'text',
-					text: `Error: ${error.message}`,
+					text: `Error executing tool "${name}":\n${errorMessage}`,
 				},
 			],
 			isError: true,
