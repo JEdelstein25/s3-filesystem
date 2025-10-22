@@ -65,18 +65,21 @@ export async function handleGlob(
 		files = files.slice(0, limit)
 	}
 
-	// Cache files for grep
+	const filePaths = files.map((uri) => uri.toString())
+
+	// Cache files for grep in background (fire and forget)
 	if (fileCache && files.length > 0 && files.length <= 1000) {
 		const cacheStats = fileCache.getStats()
 		if (cacheStats.utilizationPercent < 90) {
-			console.log(`Caching ${files.length} files for grep...`)
-			await fileCache.cacheFiles(files, { maxConcurrent: 10 })
-			const newStats = fileCache.getStats()
-			console.log(`Cached ${newStats.entries} files (${newStats.sizeMB} MB)`)
+			console.log(`Background caching ${files.length} files for future grep...`)
+			fileCache.cacheFiles(files, { maxConcurrent: 10 }).then((results) => {
+				const newStats = fileCache.getStats()
+				console.log(`Cached ${newStats.entries} files (${newStats.sizeMB} MB)`)
+			}).catch((error) => {
+				console.warn('Background caching failed:', error.message)
+			})
 		}
 	}
-
-	const filePaths = files.map((uri) => uri.toString())
 
 	return {
 		content: [

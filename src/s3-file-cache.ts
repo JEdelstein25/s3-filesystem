@@ -50,7 +50,7 @@ export class S3FileCache {
 		this.cache = new LRUCache<string, CacheEntry>({
 			max: MAX_CACHE_ENTRIES,
 			maxSize: MAX_CACHE_SIZE_BYTES,
-			sizeCalculation: (entry) => entry.size,
+			sizeCalculation: (entry) => Math.max(1, entry.size || 0),
 			dispose: async (entry, key) => {
 				await this.removeFile(entry, key)
 			},
