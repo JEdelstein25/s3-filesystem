@@ -1,6 +1,6 @@
 {	
     "amp.mcpServers": {
-		"s3-1000genomes": {
+		"s3_filesystem": {
 			"url": "http://localhost:7011/sse",
 		}
 

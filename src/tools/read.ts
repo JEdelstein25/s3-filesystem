@@ -3,7 +3,7 @@ import { URI } from 'vscode-uri'
 import type { S3FileSystem } from '../s3-filesystem.ts'
 
 export const readTool = {
-	name: 'Read',
+	name: 'read',
 	description: `Read a file or list a directory from S3. If the path is a directory, it returns a line-numbered list of entries.
 
 - The path parameter must be an S3 URI (s3://bucket/path/to/file).

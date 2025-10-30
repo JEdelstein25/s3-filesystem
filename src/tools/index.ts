@@ -14,8 +14,8 @@ export type ToolHandler = (
 ) => Promise<CallToolResult>
 
 export const toolHandlers: Record<string, ToolHandler> = {
-	Read: handleRead,
-	Grep: handleGrep,
+	read: handleRead,
+	grep: handleGrep,
 	glob: handleGlob,
 }
 

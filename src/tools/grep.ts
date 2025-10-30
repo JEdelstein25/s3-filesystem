@@ -25,7 +25,7 @@ function getRipgrepPath(): string {
 }
 
 export const grepTool = {
-	name: 'Grep',
+	name: 'grep',
 	description: `Search for exact text patterns in S3 files using regex.
 
 WHEN TO USE:
@@ -149,10 +149,14 @@ export async function handleGrep(
 
 			const elapsed = Date.now() - startTime
 			console.log(`Ripgrep completed in ${elapsed}ms with exit code ${exitCode}`)
+			if (stderr) {
+				console.log(`Ripgrep stderr: ${stderr}`)
+			}
 
 			// ripgrep exit code 1 means "no matches found" (not an error)
 			if (exitCode !== null && exitCode >= 2) {
-				reject(new Error(`ripgrep exited with code ${exitCode}: ${stderr}`))
+				const errorMsg = stderr || 'Unknown ripgrep error. Check that the cache directory exists and contains files.'
+				reject(new Error(`ripgrep exited with code ${exitCode}: ${errorMsg}`))
 				return
 			}
 

@@ -12,6 +12,7 @@
 		"@aws-sdk/client-s3": "^3.691.0",
 		"@modelcontextprotocol/sdk": "^1.17.2",
 		"@vscode/ripgrep": "^1.15.9",
+		"fzstd": "^0.1.1",
 		"lru-cache": "^10.4.3",
 		"minimatch": "^10.0.3",
 		"picomatch": "^4.0.2",

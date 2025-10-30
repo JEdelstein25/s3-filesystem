@@ -6,8 +6,12 @@ import {
 } from '@aws-sdk/client-s3'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { createGunzip } from 'node:zlib'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { URI } from 'vscode-uri'
 import { findFiles as findFilesUtil } from './find-files.ts'
+import { Decompress } from 'fzstd'
 
 export interface S3Config {
 	bucket: string
@@ -92,7 +96,42 @@ export class S3FileSystem {
 				throw new Error(`File not found: ${uri}`)
 			}
 
-			return await response.Body.transformToString()
+			const bodyStream = response.Body as Readable
+
+			// Detect compression by file extension
+			const isGzip = key.endsWith('.gz')
+			const isZstd = key.endsWith('.zst') || key.endsWith('.zstd')
+
+			if (isGzip) {
+				// Streaming gzip decompression
+				const chunks: Buffer[] = []
+				const gunzip = createGunzip()
+				
+				gunzip.on('data', (chunk) => chunks.push(chunk))
+				
+				await pipeline(bodyStream, gunzip)
+				return Buffer.concat(chunks).toString('utf-8')
+			} else if (isZstd) {
+				// Streaming zstd decompression
+				const chunks: Buffer[] = []
+				const decompress = new Decompress((chunk) => {
+					chunks.push(Buffer.from(chunk))
+				})
+
+				for await (const chunk of bodyStream) {
+					decompress.push(chunk)
+				}
+				decompress.push(new Uint8Array(0), true) // Finalize
+
+				return Buffer.concat(chunks).toString('utf-8')
+			}
+
+			// No compression, read as text
+			const chunks: Buffer[] = []
+			for await (const chunk of bodyStream) {
+				chunks.push(Buffer.from(chunk))
+			}
+			return Buffer.concat(chunks).toString('utf-8')
 		} catch (error: any) {
 			if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
 				throw new Error(`File not found: ${uri}`)
