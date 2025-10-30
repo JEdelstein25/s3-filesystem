@@ -1,5 +1,7 @@
 # S3 Virtual Filesystem
 
+Amp was here
+
 A lightweight toolkit that mounts S3 buckets as a read-only virtual filesystem, making it easy to work with cloud storage using familiar file operations. Perfect for browsing, reading, and searching through S3 data without downloading everything locally.
 
 ## Why?
