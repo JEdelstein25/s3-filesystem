@@ -1,6 +1,5 @@
 # S3 Virtual Filesystem
-This is a toolkit which mounts an S3 bucket as a read-only virtual filesystem. It provides filesystem-like tools for reading and searching files in AWS S3 buckets. Ideal for use in coding agents like Amp, Claude Code and Codex
-
+This toolkit provides simple but powerful search tools to perform agentic search over blob storage using coding agents like Amp, Claude Code and Codex. It simulates a "mounted filesystem" type interface for your S3 buckets by emulating traditional node:fs operations.
 
 https://github.com/user-attachments/assets/f49d74b8-0d90-4d2d-b471-be203f00059c
 
