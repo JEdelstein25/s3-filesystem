@@ -6,48 +6,49 @@ https://github.com/user-attachments/assets/ee9bb45e-448f-4bdb-b9c1-e4ad0836621a
 
 Perfect for navigating large blob storage and performing agentic search over compressed files.
 
+## Quick Start
+
+**1. Generate a manifest** (indexes your bucket for fast searches):
+```bash
+bun run util/generate-s3-manifest.ts <bucket> [prefix] [region]
+```
+
+**2. Start the MCP server**:
+```bash
+S3_BUCKET=your-bucket S3_REGION=us-east-1 bun run src/server.ts
+```
+
+**3. Configure Amp** (add to `.amp/settings.json`):
+```json
+{	
+	"amp.mcpServers": {
+		"s3_filesystem": {
+			"url": "http://localhost:7011/sse"
+		}
+	}
+}
+```
+
+## Tools
+
+- **read** - Read files or list directories
+- **glob** - Find files by pattern (`**/*.json`)
+- **grep** - Search file contents (requires cache)
+- **filter_metadata** - Filter by size, date, storage class
+
 ## Features
 
-- **Fast directory navigation** with automatic path collapsing for single-child directories
-- **Metadata filtering** by size, modification date, and storage class
-- **Pattern matching** with glob support
-- **Automatic decompression** for gzip and zstd compressed files
-- **Multi-layer caching** for optimal performance
-- **MCP server** for integration with AI coding assistants
+- **Fast** - Manifest-based directory listings (no S3 API calls)
+- **Smart** - Auto-decompresses `.gz` and `.zst` files
+- **Cached** - LRU cache for frequently accessed files
 
-# Tools
+## AWS Credentials
 
-- **read**: Read a file from S3
-- **glob**: Search for glob patterns in file names
-- **grep**: Search for text in files
+Uses standard AWS credential resolution:
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+- `~/.aws/credentials`
+- IAM roles
 
-# Caching
-
-The toolkit uses a multi-layer caching system:
-
-1. **Manifest cache** - Pre-indexed bucket metadata (5 min TTL)
-2. **File content cache** - LRU cache for frequently accessed files
-3. **Directory schema cache** - In-memory directory structure
-
-Background file caching occurs automatically when using glob with <1000 results.
-
-# MCP Integration
-
-This includes an MCP server adapter for seamless integration with AI coding assistants. Configure your MCP client to connect to the server endpoint.
-
-# Supported Formats
-
-- **Compression**: gzip (`.gz`), zstd (`.zst`, `.zstd`)
-- **Text files**: Any UTF-8 encoded file
-- **Archives**: WARC, CDX, and other Common Crawl formats
-
-# AWS Credentials
-
-The toolkit uses standard AWS credential resolution:
-- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
-- Shared credentials file (`~/.aws/credentials`)
-- IAM roles (for EC2/ECS)
-
-# License
+## License
 
 MIT
