@@ -46,13 +46,16 @@ export async function handleGlob(
 ): Promise<CallToolResult> {
 	const filePattern = args?.filePattern
 	if (!filePattern || typeof filePattern !== 'string') {
-		throw new Error('filePattern argument is required')
+		return {
+			content: [{ type: 'text', text: 'filePattern argument is required' }],
+			isError: true,
+		}
 	}
 	const limit = typeof args?.limit === 'number' ? args.limit : undefined
 	const offset = typeof args?.offset === 'number' ? args.offset : undefined
 
 	console.log(`[glob] Searching for pattern: ${filePattern}, limit: ${limit}, offset: ${offset}`)
-	let files = await filesystem.findFiles(filePattern, limit)
+	let files = await filesystem.findFiles(filePattern)
 	console.log(`[glob] Found ${files.length} files`)
 
 	// Apply offset if specified
@@ -61,18 +64,17 @@ export async function handleGlob(
 	}
 
 	// Apply limit after offset
-	if (limit && files.length > limit) {
+	if (limit && limit > 0) {
 		files = files.slice(0, limit)
 	}
-
-	const filePaths = files.map((uri) => uri.toString())
 
 	// Cache files for grep in background (fire and forget)
 	if (fileCache && files.length > 0 && files.length <= 1000) {
 		const cacheStats = fileCache.getStats()
 		if (cacheStats.utilizationPercent < 90) {
 			console.log(`Background caching ${files.length} files for future grep...`)
-			fileCache.cacheFiles(files, { maxConcurrent: 10 }).then((results) => {
+			const uris = files.map(f => ({ toString: () => f }))
+			fileCache.cacheFiles(uris as any, { maxConcurrent: 10 }).then((results) => {
 				const newStats = fileCache.getStats()
 				console.log(`Cached ${newStats.entries} files (${newStats.sizeMB} MB)`)
 			}).catch((error) => {
@@ -80,6 +82,8 @@ export async function handleGlob(
 			})
 		}
 	}
+
+	const filePaths = files.map((uri) => uri.toString())
 
 	return {
 		content: [

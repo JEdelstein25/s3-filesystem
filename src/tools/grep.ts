@@ -71,19 +71,28 @@ export async function handleGrep(
 ): Promise<CallToolResult> {
 	const pattern = args?.pattern
 	if (!pattern || typeof pattern !== 'string') {
-		throw new Error('pattern argument is required')
+		return {
+			content: [{ type: 'text', text: 'pattern argument is required' }],
+			isError: true,
+		}
 	}
 	const pathFilter = typeof args?.path === 'string' ? args.path : undefined
 	const globFilter = typeof args?.glob === 'string' ? args.glob : undefined
 	const caseSensitive = Boolean(args?.caseSensitive)
 
 	if (!fileCache) {
-		throw new Error('Cache is not available. Cannot perform grep without cached files.')
+		return {
+			content: [{ type: 'text', text: 'Cache is not available. Cannot perform grep without cached files.' }],
+			isError: true,
+		}
 	}
 
 	const cacheStats = fileCache.getStats()
 	if (cacheStats.entries === 0) {
-		throw new Error('No files cached. Cannot perform grep on empty cache.')
+		return {
+			content: [{ type: 'text', text: 'No files cached. Cannot perform grep on empty cache.' }],
+			isError: true,
+		}
 	}
 
 	const startTime = Date.now()

@@ -3,11 +3,11 @@ import {
 	type ListObjectsV2CommandInput,
 	type S3Client,
 } from '@aws-sdk/client-s3'
-import { URI } from 'vscode-uri'
 import { minimatch } from 'minimatch'
+import type { S3ObjectMetadata } from './s3-filesystem.ts'
 
 export interface S3Manifest {
-	files: string[]
+	files: S3ObjectMetadata[]
 	lastUpdated: string
 	version?: number
 }
@@ -54,10 +54,10 @@ export async function findFiles(
 		prefix?: string
 		maxResults?: number
 		manifest?: S3Manifest | null
-		s3KeyToURI: (key: string) => URI
+		keyToS3Uri: (key: string) => string
 	},
-): Promise<URI[]> {
-	const { prefix = '', maxResults, manifest, s3KeyToURI } = options
+): Promise<string[]> {
+	const { prefix = '', maxResults, manifest, keyToS3Uri } = options
 
 	console.log(`[findFiles] Pattern: ${pattern}, maxResults: ${maxResults}`)
 
@@ -69,12 +69,13 @@ export async function findFiles(
 		const fixedPrefix = extractFixedPrefix(pattern)
 		const fullPrefix = prefix ? `${prefix}${fixedPrefix}` : fixedPrefix
 
-		const matched: URI[] = []
-		for (const file of manifest.files) {
+		const matched: string[] = []
+		for (const fileMetadata of manifest.files) {
+			const file = fileMetadata.key
 			// Quick prefix check before glob matching
 			if (!fullPrefix || file.startsWith(fullPrefix)) {
 				if (matchGlob(pattern, file)) {
-					matched.push(s3KeyToURI(file))
+					matched.push(keyToS3Uri(file))
 					if (maxResults && matched.length >= maxResults) {
 						return matched
 					}
@@ -92,7 +93,7 @@ export async function findFiles(
 	console.log(
 		`[findFiles] No manifest, listing S3 objects in bucket: ${bucket}, prefix: ${fullPrefix || '(root)'}`,
 	)
-	const files: URI[] = []
+	const files: string[] = []
 	let continuationToken: string | undefined
 	let iterationCount = 0
 
@@ -120,7 +121,7 @@ export async function findFiles(
 					const matchPath = item.Key.startsWith(prefix) ? item.Key.slice(prefix.length) : item.Key
 
 					if (matchGlob(pattern, matchPath)) {
-						files.push(s3KeyToURI(item.Key))
+						files.push(keyToS3Uri(item.Key))
 						if (maxResults && files.length >= maxResults) {
 							console.log(`[findFiles] Reached maxResults limit: ${maxResults}`)
 							return files

@@ -1,15 +1,15 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { URI } from 'vscode-uri'
 import type { S3FileSystem } from '../s3-filesystem.ts'
 
 export const readTool = {
 	name: 'read',
-	description: `Read a file or list a directory from S3. If the path is a directory, it returns a line-numbered list of entries.
+	description: `Read a file or list a directory from S3.
 
-- The path parameter must be an S3 URI (s3://bucket/path/to/file).
-- By default, returns the first 1000 lines. To read more, call with different read_range.
-- Use Grep to find specific content in large files.
-- Results show the file path, line number, and line content.`,
+- For files: returns line-numbered content (first 1000 lines by default, use read_range for more)
+- For directories: returns list of files and subdirectories (names only, with / suffix for directories)
+- Path must be an S3 URI (s3://bucket/path/to/file or s3://bucket/path/to/dir/)
+- Use Grep to find specific content in large files
+- Directory listings require a manifest (generated via generate-s3-manifest.ts)`,
 	inputSchema: {
 		type: 'object' as const,
 		properties: {
@@ -35,52 +35,59 @@ export async function handleRead(
 ): Promise<CallToolResult> {
 	const path = args?.path
 	if (!path || typeof path !== 'string') {
-		throw new Error('path argument is required')
+		return {
+			content: [{ type: 'text', text: 'path argument is required' }],
+			isError: true,
+		}
 	}
 	const readRange =
 		args?.read_range && Array.isArray(args.read_range)
 			? ([args.read_range[0], args.read_range[1]] as [number, number])
 			: undefined
 
-	const uri = URI.parse(path)
-
-	try {
-		// If path ends with /, try listing as directory first
-		if (path.endsWith('/')) {
-			try {
-				const entries = await filesystem.readdir(uri)
-				const entryNames = entries.map((entry) => {
-					const name = entry.uri.path.split('/').filter(Boolean).pop() || ''
-					return entry.isDirectory ? `${name}/` : name
-				})
-
-				const numbered = entryNames.map((entry, idx) => `${idx + 1}: ${entry}`).join('\n')
+	// Try listing as directory first if path ends with /
+	if (path.endsWith('/')) {
+		let currentPath = path
+		let collapsedPath = ''
+		
+		// Collapse single-child directories
+		while (true) {
+			const entries = filesystem.listDirectory(currentPath)
+			if (entries === null) {
 				return {
-					content: [{ type: 'text', text: numbered }],
+					content: [{ 
+						type: 'text', 
+						text: 'No manifest available. Generate one using: bun run util/generate-s3-manifest.ts <bucket> [prefix] [region]' 
+					}],
+					isError: true,
 				}
-			} catch {
-				// If readdir fails, fall through to stat/read
 			}
-		}
-
-		const stat = await filesystem.stat(uri)
-
-		if (stat.isDirectory) {
-			// List directory
-			const entries = await filesystem.readdir(uri)
-			const entryNames = entries.map((entry) => {
-				const name = entry.uri.path.split('/').filter(Boolean).pop() || ''
-				return entry.isDirectory ? `${name}/` : name
-			})
-
-			const numbered = entryNames.map((entry, idx) => `${idx + 1}: ${entry}`).join('\n')
+			
+			if (entries.length === 0) {
+				return {
+					content: [{ type: 'text', text: 'Directory not found or empty' }],
+				}
+			}
+			
+			// If there's only one entry and it's a directory, continue collapsing
+			if (entries.length === 1 && entries[0].endsWith('/')) {
+				collapsedPath += entries[0]
+				currentPath = currentPath + entries[0]
+				continue
+			}
+			
+			// Found multiple entries or a file, stop collapsing
+			const header = collapsedPath ? `Showing ${collapsedPath}\n\n` : ''
+			const numbered = entries.map((entry, idx) => `${idx + 1}: ${entry}`).join('\n')
 			return {
-				content: [{ type: 'text', text: numbered }],
+				content: [{ type: 'text', text: header + numbered }],
 			}
 		}
+	}
 
-		// Read file content
-		let content = await filesystem.readFile(uri)
+	// Read file content
+	try {
+		let content = await filesystem.readFile(path)
 
 		// Apply read_range if specified
 		if (readRange) {
@@ -98,6 +105,12 @@ export async function handleRead(
 			content: [{ type: 'text', text: content }],
 		}
 	} catch (error: any) {
-		throw new Error(`Failed to read ${path}: ${error.message}`)
+		return {
+			content: [{
+				type: 'text',
+				text: `Failed to read ${path}: ${error.message}`,
+			}],
+			isError: true,
+		}
 	}
 }

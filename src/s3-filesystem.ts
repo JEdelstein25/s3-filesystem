@@ -1,15 +1,13 @@
 import {
 	GetObjectCommand,
-	HeadObjectCommand,
-	ListObjectsV2Command,
 	S3Client,
+	type ObjectStorageClass,
 } from '@aws-sdk/client-s3'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createGunzip } from 'node:zlib'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { URI } from 'vscode-uri'
 import { findFiles as findFilesUtil } from './find-files.ts'
 import { Decompress } from 'fzstd'
 
@@ -19,10 +17,66 @@ export interface S3Config {
 	prefix: string
 }
 
+export interface S3ObjectMetadata {
+	key: string
+	size?: number
+	lastModified?: string
+	eTag?: string
+	storageClass?: ObjectStorageClass
+}
+
 export interface S3Manifest {
-	files: string[]
+	files: S3ObjectMetadata[]
 	lastUpdated: string
 	version?: number
+}
+
+export interface DirectoryEntry {
+	name: string
+	isDirectory: boolean
+	uri: string
+}
+
+class DirectorySchema {
+	private dirs: Map<string, Set<string>> = new Map()
+
+	constructor(manifest: S3Manifest, bucket: string) {
+		this.buildFromManifest(manifest, bucket)
+	}
+
+	private buildFromManifest(manifest: S3Manifest, bucket: string) {
+		for (const file of manifest.files) {
+			const key = typeof file === 'string' ? file : file.key
+			const parts = key.split('/').filter(Boolean)
+			
+			// Build directory structure
+			for (let i = 0; i < parts.length; i++) {
+				const currentPath = parts.slice(0, i).join('/') + (i > 0 ? '/' : '')
+				const item = parts[i]
+				const isLastPart = i === parts.length - 1
+				const itemName = isLastPart ? item : item + '/'
+				
+				if (!this.dirs.has(currentPath)) {
+					this.dirs.set(currentPath, new Set())
+				}
+				this.dirs.get(currentPath)!.add(itemName)
+			}
+		}
+	}
+
+	listDirectory(path: string): string[] {
+		// Normalize path
+		const normalizedPath = path.endsWith('/') ? path : path + '/'
+		const cleanPath = normalizedPath.startsWith('/') ? normalizedPath.slice(1) : normalizedPath
+		const lookupPath = cleanPath === '/' ? '' : cleanPath
+		
+		const entries = this.dirs.get(lookupPath)
+		if (!entries) {
+			return []
+		}
+		
+		return Array.from(entries).sort()
+	}
 }
 
 const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000
@@ -31,6 +85,7 @@ export class S3FileSystem {
 	private config: S3Config
 	private s3Client: S3Client
 	private manifestCache: { data: S3Manifest; fetchedAt: number } | null = null
+	private directorySchema: DirectorySchema | null = null
 
 	constructor(config: S3Config) {
 		this.config = config
@@ -39,21 +94,32 @@ export class S3FileSystem {
 		})
 	}
 
-	private uriToS3Key(uri: URI): string {
-		// Remove the bucket from the path and apply prefix
-		let path = uri.path
-		if (path.startsWith('/')) {
-			path = path.slice(1)
-		}
-		return this.config.prefix ? `${this.config.prefix}${path}` : path
+	private applyPrefix(key: string): string {
+		return this.config.prefix ? `${this.config.prefix}${key}` : key
 	}
 
-	private s3KeyToURI(key: string): URI {
-		// Remove prefix if present
-		const path = key.startsWith(this.config.prefix)
+	private removePrefix(key: string): string {
+		return key.startsWith(this.config.prefix)
 			? key.slice(this.config.prefix.length)
 			: key
-		return URI.parse(`s3://${this.config.bucket}/${path}`)
+	}
+
+	keyToS3Uri(key: string): string {
+		const cleanKey = this.removePrefix(key)
+		return `s3://${this.config.bucket}/${cleanKey}`
+	}
+
+	s3UriToKey(uri: string): string {
+		// Parse s3://bucket/key format
+		const match = uri.match(/^s3:\/\/([^/]+)\/(.+)$/)
+		if (!match) {
+			throw new Error(`Invalid S3 URI: ${uri}`)
+		}
+		const [, bucket, key] = match
+		if (bucket !== this.config.bucket) {
+			throw new Error(`URI bucket ${bucket} does not match configured bucket ${this.config.bucket}`)
+		}
+		return this.applyPrefix(key)
 	}
 
 	async fetchManifest(): Promise<S3Manifest | null> {
@@ -73,6 +139,10 @@ export class S3FileSystem {
 			const manifest = JSON.parse(content) as S3Manifest
 
 			this.manifestCache = { data: manifest, fetchedAt: Date.now() }
+			
+			// Build directory schema from manifest
+			this.directorySchema = new DirectorySchema(manifest, this.config.bucket)
+			
 			return manifest
 		} catch (error: any) {
 			if (error.code === 'ENOENT') {
@@ -83,8 +153,8 @@ export class S3FileSystem {
 		}
 	}
 
-	async readFile(uri: URI): Promise<string> {
-		const key = this.uriToS3Key(uri)
+	async readFile(s3Uri: string): Promise<string> {
+		const key = this.s3UriToKey(s3Uri)
 		try {
 			const command = new GetObjectCommand({
 				Bucket: this.config.bucket,
@@ -93,7 +163,7 @@ export class S3FileSystem {
 			const response = await this.s3Client.send(command)
 
 			if (!response.Body) {
-				throw new Error(`File not found: ${uri}`)
+				throw new Error(`File not found: ${s3Uri}`)
 			}
 
 			const bodyStream = response.Body as Readable
@@ -134,99 +204,30 @@ export class S3FileSystem {
 			return Buffer.concat(chunks).toString('utf-8')
 		} catch (error: any) {
 			if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
-				throw new Error(`File not found: ${uri}`)
+				throw new Error(`File not found: ${s3Uri}`)
 			}
 			throw error
 		}
 	}
 
-	async stat(uri: URI): Promise<{ size: number; isDirectory: boolean }> {
-		const key = this.uriToS3Key(uri)
-		const dirKey = key.endsWith('/') ? key : `${key}/`
 
-		// Check if it's a directory
-		try {
-			const listCommand = new ListObjectsV2Command({
-				Bucket: this.config.bucket,
-				Prefix: dirKey,
-				MaxKeys: 1,
-			})
-			const listResponse = await this.s3Client.send(listCommand)
 
-			if (listResponse.Contents?.length || listResponse.CommonPrefixes?.length) {
-				return { size: 0, isDirectory: true }
-			}
-		} catch {
-			// Not a directory, try as file
+	listDirectory(s3Uri: string): string[] | null {
+		if (!this.directorySchema) {
+			return null
 		}
 
-		// Try as file
-		try {
-			const command = new HeadObjectCommand({
-				Bucket: this.config.bucket,
-				Key: key,
-			})
-			const response = await this.s3Client.send(command)
-
-			return {
-				size: response.ContentLength ?? 0,
-				isDirectory: false,
-			}
-		} catch (error: any) {
-			if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
-				throw new Error(`File not found: ${uri}`)
-			}
-			throw error
-		}
+		const key = this.s3UriToKey(s3Uri)
+		return this.directorySchema.listDirectory(key)
 	}
 
-	async readdir(uri: URI): Promise<Array<{ uri: URI; isDirectory: boolean }>> {
-		const key = this.uriToS3Key(uri)
-		const dirKey = key ? (key.endsWith('/') ? key : `${key}/`) : ''
-
-		const command = new ListObjectsV2Command({
-			Bucket: this.config.bucket,
-			Prefix: dirKey,
-			Delimiter: '/',
-		})
-		const response = await this.s3Client.send(command)
-
-		const entries: Array<{ uri: URI; isDirectory: boolean }> = []
-
-		// Add directories (CommonPrefixes)
-		if (response.CommonPrefixes) {
-			for (const prefix of response.CommonPrefixes) {
-				if (prefix.Prefix) {
-					entries.push({
-						uri: this.s3KeyToURI(prefix.Prefix),
-						isDirectory: true,
-					})
-				}
-			}
-		}
-
-		// Add files (Contents)
-		if (response.Contents) {
-			for (const item of response.Contents) {
-				if (item.Key && item.Key !== dirKey) {
-					entries.push({
-						uri: this.s3KeyToURI(item.Key),
-						isDirectory: false,
-					})
-				}
-			}
-		}
-
-		return entries
-	}
-
-	async findFiles(pattern: string, maxResults?: number): Promise<URI[]> {
+	async findFiles(pattern: string, maxResults?: number): Promise<string[]> {
 		const manifest = await this.fetchManifest()
 		return findFilesUtil(this.s3Client, this.config.bucket, pattern, {
 			prefix: this.config.prefix,
 			maxResults,
 			manifest,
-			s3KeyToURI: this.s3KeyToURI.bind(this),
+			keyToS3Uri: this.keyToS3Uri.bind(this),
 		})
 	}
 

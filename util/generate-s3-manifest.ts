@@ -16,8 +16,16 @@
 
 import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 
+interface S3ObjectMetadata {
+	key: string
+	size?: number
+	lastModified?: string
+	eTag?: string
+	storageClass?: string
+}
+
 interface S3Manifest {
-	files: string[]
+	files: S3ObjectMetadata[]
 	lastUpdated: string
 	version?: number
 }
@@ -37,7 +45,7 @@ async function generateManifest(bucket: string, prefix?: string, region?: string
 	}
 	console.log('This may take a while for large buckets...')
 
-	const files: string[] = []
+	const files: S3ObjectMetadata[] = []
 	let continuationToken: string | undefined
 	let pageCount = 0
 
@@ -58,7 +66,13 @@ async function generateManifest(bucket: string, prefix?: string, region?: string
 		if (response.Contents) {
 			for (const item of response.Contents) {
 				if (item.Key && item.Key !== MANIFEST_KEY) {
-					files.push(item.Key)
+					files.push({
+						key: item.Key,
+						size: item.Size,
+						lastModified: item.LastModified?.toISOString(),
+						eTag: item.ETag,
+						storageClass: item.StorageClass,
+					})
 					// Check if we've reached the limit
 					if (maxFiles && files.length >= maxFiles) {
 						break
