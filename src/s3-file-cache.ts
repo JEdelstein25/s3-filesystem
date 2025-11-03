@@ -4,7 +4,6 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { LRUCache } from 'lru-cache'
-import { URI } from 'vscode-uri'
 
 import type { S3FileSystem } from './s3-filesystem.ts'
 
@@ -69,17 +68,18 @@ export class S3FileCache {
 		}
 	}
 
-	private getCacheKey(uri: URI | string): string {
-		const uriStr = typeof uri === 'string' ? uri : uri.toString()
-		return createHash('sha256').update(uriStr).digest('hex')
+	private getCacheKey(s3Uri: string): string {
+		return createHash('sha256').update(s3Uri).digest('hex')
 	}
 
-	private getLocalPath(uri: URI): string {
-		const uriObj = typeof uri === 'string' ? URI.parse(uri) : uri
-		const bucket = uriObj.authority || uriObj.path.split('/')[0]
-		const key = uriObj.path.startsWith('/') ? uriObj.path.slice(1) : uriObj.path
-		const cleanBucket = bucket.replace(/^s3:\/\//, '')
-		return path.join(this.cacheDir, cleanBucket, key)
+	private getLocalPath(s3Uri: string): string {
+		// Parse s3://bucket/key format
+		const match = s3Uri.match(/^s3:\/\/([^/]+)\/(.+)$/)
+		if (!match) {
+			throw new Error(`Invalid S3 URI: ${s3Uri}`)
+		}
+		const [, bucket, key] = match
+		return path.join(this.cacheDir, bucket, key)
 	}
 
 	private async removeFile(entry: CacheEntry, key: string): Promise<void> {
@@ -91,10 +91,10 @@ export class S3FileCache {
 		}
 	}
 
-	async cacheFile(uri: URI, options?: { signal?: AbortSignal }): Promise<string | null> {
+	async cacheFile(s3Uri: string, options?: { signal?: AbortSignal }): Promise<string | null> {
 		await this.initPromise
 
-		const key = this.getCacheKey(uri)
+		const key = this.getCacheKey(s3Uri)
 
 		// Check if already cached
 		const existing = this.cache.get(key)
@@ -104,10 +104,9 @@ export class S3FileCache {
 		}
 
 		try {
-		// Download file content
-		const uriString = uri.toString()
-		const content = await this.filesystem.readFile(uriString)
-			const localPath = this.getLocalPath(uri)
+			// Download file content
+			const content = await this.filesystem.readFile(s3Uri)
+			const localPath = this.getLocalPath(s3Uri)
 
 			// Ensure directory exists
 			await fs.mkdir(path.dirname(localPath), { recursive: true })
@@ -123,7 +122,7 @@ export class S3FileCache {
 			const entry: CacheEntry = {
 				localPath,
 				size: actualSize,
-				uri: uri.toString(),
+				uri: s3Uri,
 				lastAccessed: Date.now(),
 			}
 
@@ -132,30 +131,30 @@ export class S3FileCache {
 
 			return localPath
 		} catch (error: any) {
-			console.error(`Failed to cache S3 file ${uri.toString()}:`, error.message)
+			console.error(`Failed to cache S3 file ${s3Uri}:`, error.message)
 			throw error
 		}
 	}
 
 	async cacheFiles(
-		uris: URI[],
+		s3Uris: string[],
 		options?: { signal?: AbortSignal; maxConcurrent?: number },
 	): Promise<Map<string, string | null>> {
 		const maxConcurrent = options?.maxConcurrent ?? 10
 		const results = new Map<string, string | null>()
 
 		// Process in batches to limit concurrency
-		for (let i = 0; i < uris.length; i += maxConcurrent) {
-			const batch = uris.slice(i, i + maxConcurrent)
+		for (let i = 0; i < s3Uris.length; i += maxConcurrent) {
+			const batch = s3Uris.slice(i, i + maxConcurrent)
 			const batchResults = await Promise.allSettled(
-				batch.map((uri) =>
-					this.cacheFile(uri, options).then((localPath) => ({ uri, localPath })),
+				batch.map((s3Uri) =>
+					this.cacheFile(s3Uri, options).then((localPath) => ({ s3Uri, localPath })),
 				),
 			)
 
 			for (const result of batchResults) {
 				if (result.status === 'fulfilled') {
-					results.set(result.value.uri.toString(), result.value.localPath)
+					results.set(result.value.s3Uri, result.value.localPath)
 				} else {
 					console.error('Failed to cache file in batch:', result.reason)
 				}
@@ -171,8 +170,8 @@ export class S3FileCache {
 		return results
 	}
 
-	getCachedPath(uri: URI): string | null {
-		const key = this.getCacheKey(uri)
+	getCachedPath(s3Uri: string): string | null {
+		const key = this.getCacheKey(s3Uri)
 		const entry = this.cache.get(key)
 		if (entry) {
 			entry.lastAccessed = Date.now()
