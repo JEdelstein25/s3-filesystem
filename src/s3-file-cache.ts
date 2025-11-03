@@ -104,15 +104,9 @@ export class S3FileCache {
 		}
 
 		try {
-			// Check file size before downloading
-			const stat = await this.filesystem.stat(uri)
-			if (stat.size > MAX_FILE_SIZE_BYTES) {
-				console.warn(`File too large to cache: ${uri.toString()} (${stat.size} bytes)`)
-				return null
-			}
-
-			// Download file content
-			const content = await this.filesystem.readFile(uri)
+		// Download file content
+		const uriString = uri.toString()
+		const content = await this.filesystem.readFile(uriString)
 			const localPath = this.getLocalPath(uri)
 
 			// Ensure directory exists
