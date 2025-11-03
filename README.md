@@ -51,4 +51,4 @@ Uses standard AWS credential resolution:
 
 ## License
 
-MIT
+GPL-3.0
